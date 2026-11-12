@@ -8,13 +8,16 @@ panel with:
 
 - a speed graph of the last few minutes
 - every Deco unit with its online and internet status, plus the Deco's CPU and RAM
-- the busiest devices right now
+- the busiest devices right now, each with a **Block** button (on hover, or
+  pick a row with ↑/↓ and press `B`); it asks first, and never offers to
+  block this computer. Unblock in the Deco Monitor app or the Deco phone app.
 - a button that opens the full **Deco Monitor** app
 
-The widget never talks to the Deco itself. It reads the status file written by
+The widget never logs in to the Deco itself. It reads the status file written by
 the `deco-monitor` service from
 [deco-monitor](https://github.com/hell0world69/deco-monitor), which also has
 the desktop app (device list, block and unblock, reboot) and the setup steps.
+Blocking runs that package's `deco block` command.
 
 ## Install
 

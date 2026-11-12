@@ -58,7 +58,7 @@ Panel {
     var cl = Array.isArray(d.clients) ? d.clients.slice(0, 200) : []
     deviceCount = cl.filter(function(c) { return c && c.online !== false }).length
     devices = cl.slice(0, 8).map(function(c) {
-      return { name: str(c.name, 40), ip: str(c.ip, 40), conn: str(c.connection, 16),
+      return { name: str(c.name, 40), mac: str(c.mac, 20), ip: str(c.ip, 40), conn: str(c.connection, 16),
                down: num(c.down_kbps), up: num(c.up_kbps), isNew: c["new"] === true }
     })
     var ns = Array.isArray(d.nodes) ? d.nodes.slice(0, 16) : []
@@ -90,6 +90,80 @@ Panel {
     running: true
     onTriggered: statusFile.reload()
   }
+
+  // ------------------------------------------------------------ blocking
+  // Blocking runs `deco block MAC` from the deco-monitor package: the same
+  // blocked list as the Deco phone app's Block button. `deco` patches the
+  // status file afterwards, so the change shows on the next reload.
+  // The keyboard selection follows a device (by MAC), not a row position:
+  // "Busiest devices" reorders as speeds change, and B must block the device
+  // the user picked, not whatever slid into its place.
+  property string cursorMac: ""
+  readonly property int cursor: {
+    for (var i = 0; i < devices.length; i++) if (devices[i].mac === cursorMac) return i
+    return -1
+  }
+  property var pendingBlock: null         // {mac, name} awaiting confirmation
+  property bool blocking: false
+  property string blockMessage: ""
+  property bool blockFailed: false
+  property var ownMacs: []
+
+  function isOwn(mac) { return ownMacs.indexOf(mac) >= 0 }
+  function askBlock(d) {
+    if (!d || !d.mac || isOwn(d.mac) || blocking) return
+    pendingBlock = { mac: d.mac, name: d.name }
+  }
+  function confirmBlock() {
+    var b = pendingBlock
+    pendingBlock = null
+    if (!b || blocking) return
+    blocking = true
+    blockMessage = strings.t("block.running").arg(b.name)
+    blockFailed = false
+    blockProc.target = b
+    // The MAC goes in as an argument, never into the script text.
+    blockProc.command = ["sh", "-c",
+      "command -v deco >/dev/null || { echo '{\"ok\":false,\"error\":\"nodeco\"}'; exit 1; }; exec deco block \"$1\"",
+      "sh", b.mac]
+    blockProc.running = true
+  }
+
+  Process {
+    id: blockProc
+    property var target: null
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var r = {}
+        try { r = JSON.parse(text) } catch (e) {}
+        var name = blockProc.target ? blockProc.target.name : ""
+        root.blockFailed = r.ok !== true
+        root.blockMessage = r.ok === true ? strings.t("block.done").arg(name)
+                          : r.error === "nodeco" ? strings.t("block.nodeco")
+                          : strings.t("block.failed").arg(name).arg(root.str(r.error || strings.t("block.unknown"), 160))
+        root.blocking = false
+        statusFile.reload()
+      }
+    }
+  }
+
+  // This computer's own MAC addresses: their rows get no Block button.
+  Process {
+    id: macsProc
+    command: ["sh", "-c", "cat /sys/class/net/*/address"]
+    running: true
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        root.ownMacs = String(text || "").split("\n").map(function(m) {
+          return m.trim().toUpperCase().replace(/:/g, "-")
+        }).filter(function(m) { return m.length === 17 })
+      }
+    }
+  }
+
+  onOpenedChanged: if (!opened) { pendingBlock = null; cursorMac = ""; if (!blocking) blockMessage = "" }
 
   function speed(kbps) {
     if (kbps >= 1e6) return strings.t("unit.gbps").arg(I18n.formatNumber(kbps / 1e6, 2))
@@ -182,8 +256,43 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      onCloseRequested: root.close()
-      onTabRequested: function(direction) { root.switchPanel(direction) }
+      onCloseRequested: {
+        if (root.pendingBlock) root.pendingBlock = null
+        else root.close()
+      }
+      onTabRequested: function(direction) { if (!root.pendingBlock) root.switchPanel(direction) }
+      onMoveRequested: function(dx, dy) {
+        if (root.pendingBlock) {
+          if (dx !== 0) blockConfirm.selectedIndex = blockConfirm.selectedIndex === 0 ? 1 : 0
+          return
+        }
+        if (dy === 0 || root.devices.length === 0) return
+        var next = Math.max(0, Math.min(root.devices.length - 1, root.cursor < 0 ? 0 : root.cursor + dy))
+        root.cursorMac = root.devices[next].mac
+      }
+      onActivateRequested: {
+        if (!root.pendingBlock) return
+        if (blockConfirm.selectedIndex === 0) root.pendingBlock = null
+        else root.confirmBlock()
+      }
+      onDeleteRequested: if (!root.pendingBlock && root.cursor >= 0) root.askBlock(root.devices[root.cursor])
+      onTextKey: function(t, modifiers) {
+        if ((t === "b" || t === "B") && !root.pendingBlock && root.cursor >= 0) root.askBlock(root.devices[root.cursor])
+      }
+
+      ConfirmDialog {
+        id: blockConfirm
+        anchors.fill: parent
+        z: 10
+        opened: root.pendingBlock !== null
+        message: root.pendingBlock ? strings.t("block.confirm").arg(root.pendingBlock.name) : ""
+        confirmText: strings.t("block.button")
+        foreground: root.fg
+        fontFamily: root.fontName
+        onOpenedChanged: if (opened) selectedIndex = 1
+        onCanceled: root.pendingBlock = null
+        onConfirmed: root.confirmBlock()
+      }
 
       Column {
         id: column
@@ -410,6 +519,18 @@ Panel {
           }
         }
 
+        Text {
+          visible: root.blockMessage !== ""
+          width: parent.width
+          wrapMode: Text.Wrap
+          textFormat: Text.PlainText
+          text: root.blockMessage
+          color: root.blockFailed ? root.urgent : root.fg
+          opacity: root.blockFailed ? 1 : 0.7
+          font.family: root.fontName
+          font.pixelSize: Style.font.bodySmall
+        }
+
         PanelSeparator { visible: root.devices.length > 0; width: parent.width; foreground: root.fg }
 
         PanelSectionHeader {
@@ -436,13 +557,28 @@ Panel {
           Repeater {
             model: root.devices
             delegate: Item {
+              id: devRow
               required property var modelData
+              required property int index
               width: parent.width
-              implicitHeight: devName.implicitHeight
+              implicitHeight: Math.max(devName.implicitHeight, blockButton.implicitHeight)
+              readonly property bool selected: root.cursorMac !== "" && modelData.mac === root.cursorMac
+              readonly property bool canBlock: modelData.mac !== "" && !root.isOwn(modelData.mac)
+
+              HoverHandler { id: rowHover }
+
+              Rectangle {
+                anchors.fill: parent
+                anchors.leftMargin: -Style.space(6)
+                anchors.rightMargin: -Style.space(2)
+                radius: Style.space(4)
+                color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, devRow.selected ? 0.09 : rowHover.hovered ? 0.05 : 0)
+              }
 
               Text {
                 id: devName
                 textFormat: Text.PlainText
+                anchors.verticalCenter: parent.verticalCenter
                 anchors.left: parent.left
                 anchors.right: newTag.visible ? newTag.left : devConn.left
                 anchors.rightMargin: Style.space(6)
@@ -458,7 +594,7 @@ Panel {
                 textFormat: Text.PlainText
                 anchors.right: devConn.left
                 anchors.rightMargin: Style.space(8)
-                anchors.verticalCenter: devName.verticalCenter
+                anchors.verticalCenter: parent.verticalCenter
                 text: strings.t("device.new")
                 color: root.urgent
                 font.family: root.fontName
@@ -468,6 +604,7 @@ Panel {
               Text {
                 id: devConn
                 textFormat: Text.PlainText
+                anchors.verticalCenter: parent.verticalCenter
                 anchors.right: devSpeed.left
                 anchors.rightMargin: Style.space(10)
                 width: Style.space(56)
@@ -481,7 +618,9 @@ Panel {
               Text {
                 id: devSpeed
                 textFormat: Text.PlainText
-                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.right: blockButton.left
+                anchors.rightMargin: Style.space(4)
                 width: Style.space(84)
                 horizontalAlignment: Text.AlignRight
                 text: "↓" + root.short(modelData.down) + " ↑" + root.short(modelData.up)
@@ -490,6 +629,21 @@ Panel {
                 font.pixelSize: Style.font.bodySmall
                 font.bold: modelData.down + modelData.up >= 1000
                 font.features: { "tnum": 1 }
+              }
+              // Always takes its space so the speeds don't shift; shown on
+              // hover or keyboard selection, never for this computer.
+              PanelActionButton {
+                id: blockButton
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                fontSize: Style.font.body
+                iconText: String.fromCodePoint(0xF073A)   // nf-md-cancel (circle with a slash)
+                tooltipText: strings.t("action.block").arg(devRow.modelData.name)
+                foreground: root.urgent
+                fontFamily: root.fontName
+                opacity: devRow.canBlock && (rowHover.hovered || devRow.selected) ? 1 : 0
+                enabled: opacity > 0 && !root.blocking
+                onClicked: root.askBlock(devRow.modelData)
               }
             }
           }

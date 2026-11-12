@@ -1,5 +1,8 @@
 {
-  "bar.devices": { "one": "%1 device", "other": "%1 devices" },
+  "bar.devices": {
+    "one": "%1 device",
+    "other": "%1 devices"
+  },
   "bar.speed": "↓%1 ↑%2",
   "bar.offline": "Deco ?",
   "tooltip": "Home network: ↓%1 ↑%2, %3",
@@ -22,5 +25,13 @@
   "action.app": "Open Deco Monitor",
   "error.title": "Can't reach the Deco",
   "error.service": "Start the service: systemctl --user enable --now deco-monitor",
-  "empty": "Waiting for data…"
+  "empty": "Waiting for data…",
+  "action.block": "Block %1",
+  "block.confirm": "Block %1? It's disconnected until you unblock it in Deco Monitor or the Deco app.",
+  "block.button": "Block",
+  "block.running": "Blocking %1…",
+  "block.done": "%1 is blocked. Unblock it in Deco Monitor or the Deco app.",
+  "block.failed": "Couldn't block %1: %2",
+  "block.unknown": "unknown error",
+  "block.nodeco": "The deco command isn't installed (deco-monitor package)."
 }

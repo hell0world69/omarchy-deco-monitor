@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "hell0world.deco-monitor",
   "name": "Deco Monitor",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "hell0world",
   "license": "MIT",
   "description": "Live home-network speed and connected devices from a TP-Link Deco mesh",
