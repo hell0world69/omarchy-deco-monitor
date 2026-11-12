@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "hell0world.deco-monitor",
+  "name": "Deco Monitor",
+  "version": "1.0.0",
+  "author": "hell0world",
+  "license": "MIT",
+  "description": "Live home-network speed and connected devices from a TP-Link Deco mesh",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Deco Monitor",
+    "description": "Total download/upload across your home network and the number of connected devices, read from the deco-monitor service. Click for a speed graph, Deco units and the busiest devices.",
+    "category": "Network",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "showCount": true,
+      "showSpeed": true
+    },
+    "schema": [
+      { "key": "showSpeed", "type": "boolean", "label": "Show network speed in the bar", "defaultValue": true, "description": "Total download and upload across every device on the Deco network." },
+      { "key": "showCount", "type": "boolean", "label": "Show device count in the bar", "defaultValue": true, "description": "How many devices are connected right now." }
+    ]
+  }
+}
